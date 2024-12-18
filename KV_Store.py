@@ -2,6 +2,8 @@ import pickle
 import os
 import hashlib
 import time
+import random
+import string
 
 # Custom Bloom Filter Implementation
 class BloomFilter:
@@ -209,3 +211,45 @@ class KeyValueStore:
                     print(f"Loaded {file_meta['file']}: {data}")
             except Exception as e:
                 print(f"Error reading {file_meta['file']}: {e}")
+            
+
+
+def generate_random_key(length=10):
+    """Generate a random alphanumeric key."""
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+
+def test_large_data(store, num_entries=1000):
+    """Insert a large number of key-value pairs and test retrieval."""
+    print(f"\nInserting {num_entries} random key-value pairs...")
+    start_time = time.time()
+
+    # Insert random keys and values and save some keys for testing
+    inserted_keys = []
+    for _ in range(num_entries):
+        key = generate_random_key()
+        value = random.randint(1, 1000)
+        store.insert(key, value)
+        if len(inserted_keys) < 10:  # Save the first 10 keys for testing retrieval
+            inserted_keys.append(key)
+
+    print(f"Data insertion completed in {time.time() - start_time:.2f} seconds.")
+
+    # Test retrieval of saved keys
+    print("\nTesting retrieval of inserted keys:")
+    for key in inserted_keys:
+        result = store.get(key)
+        print(f"Key: {key} --> Value: {result}")
+
+    # Test retrieval of random non-existent keys
+    print("\nTesting retrieval of non-existent keys:")
+    for _ in range(5):
+        key = generate_random_key()
+        result = store.get(key)
+        print(f"Key: {key} --> Value: {result}")
+
+    print("\nLoading all files...")
+    store.load_files()
+
+if __name__ == "__main__":
+    store = KeyValueStore(memory_threshold=100)  # Larger threshold for testing
+    test_large_data(store, num_entries=1000)
