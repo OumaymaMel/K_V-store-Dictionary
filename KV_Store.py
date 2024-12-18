@@ -22,6 +22,7 @@ class BloomFilter:
     def __contains__(self, key):
         return all(self.bit_array[hash_value] for hash_value in self._hashes(key))
 
+
 # AVL Tree Node
 class AVLNode:
     def __init__(self, key, value):
@@ -30,6 +31,7 @@ class AVLNode:
         self.height = 1
         self.left = None
         self.right = None
+
 
 # AVL Tree Implementation
 class AVLTree:
@@ -67,7 +69,7 @@ class AVLTree:
             node.left = self._insert(node.left, key, value)
         elif key > node.key:
             node.right = self._insert(node.right, key, value)
-        else:  # Duplicate keys are updated
+        else:
             node.value = value
             return node
 
@@ -100,7 +102,8 @@ class AVLTree:
     def in_order(self):
         return list(self._in_order(self.root))
 
-# Red-Black Tree Placeholder
+
+# Simple Red-Black Tree (Placeholder)
 class RedBlackTree:
     def __init__(self):
         self.data = {}
@@ -111,6 +114,8 @@ class RedBlackTree:
     def get_sorted_items(self):
         return sorted(self.data.items())
 
+
+# Key-Value Store Implementation
 class KeyValueStore:
     def __init__(self, memory_threshold=5, database_path="data_store_db"):
         self.avl_tree = AVLTree()
@@ -128,11 +133,6 @@ class KeyValueStore:
         if os.path.exists(self.metadata_file):
             with open(self.metadata_file, "rb") as f:
                 self.metadata = pickle.load(f)
-                # Determine last file number to continue sequential naming
-                if self.metadata:
-                    last_file = self.metadata[-1]["file"]
-                    self.file_counter = int(last_file.split("F")[-1].split(".")[0]) + 1
-                    print(f"Loaded existing metadata. Continuing file numbering at F{self.file_counter}.")
 
     def insert(self, key, value):
         if self.item_count < self.memory_threshold:
@@ -149,107 +149,65 @@ class KeyValueStore:
         file_name = os.path.join(self.database_path, f"F{self.file_counter}.pkl")
         bloom = BloomFilter(size=1000, hash_count=3)
 
-        try:
-            with open(file_name, "wb") as f:
-                pickle.dump(items, f)
-                print(f"Dumped {len(items)} items to file: {file_name}")
+        with open(file_name, "wb") as f:
+            pickle.dump(items, f)
             for key, _ in items:
                 bloom.add(key)
-            self.metadata.append({
-                "file": file_name,
-                "start_key": items[0][0],
-                "end_key": items[-1][0],
-                "bloom_filter": bloom
-            })
-            with open(self.metadata_file, "wb") as f:
-                pickle.dump(self.metadata, f)
-            self.file_counter += 1
-        except Exception as e:
-            print(f"Error writing to file: {e}")
+
+        self.metadata.append({
+            "file": file_name,
+            "start_key": items[0][0],
+            "end_key": items[-1][0],
+            "bloom_filter": bloom
+        })
+
+        with open(self.metadata_file, "wb") as f:
+            pickle.dump(self.metadata, f)
+        self.file_counter += 1
 
     def get(self, key):
-        start_time = time.perf_counter()  # Start the timer
-
-        # Check in-memory AVL Tree
         for k, v in self.avl_tree.in_order():
             if k == key:
-                elapsed_time = time.perf_counter() - start_time
-                print(f"Search in AVL Tree: Key: {key}, Value: {v}, Time: {elapsed_time:.6f} seconds")
                 return v
 
-        # Search Red-Black Tree
         if key in self.red_black_tree.data:
-            elapsed_time = time.perf_counter() - start_time
-            print(f"Search in Red-Black Tree: Key: {key}, Value: {self.red_black_tree.data[key]}, Time: {elapsed_time:.6f} seconds")
             return self.red_black_tree.data[key]
 
-        # Search files using metadata and bloom filters
         for file_meta in self.metadata:
             bloom = file_meta["bloom_filter"]
             if key in bloom:
-                try:
-                    with open(file_meta["file"], "rb") as f:
-                        items = pickle.load(f)
-                        for k, v in items:
-                            if k == key:
-                                elapsed_time = time.perf_counter() - start_time
-                                print(f"Search in File ({file_meta['file']}): Key: {key}, Value: {v}, Time: {elapsed_time:.6f} seconds")
-                                return v
-                except Exception as e:
-                    print(f"Error reading {file_meta['file']}: {e}")
-
-        elapsed_time = time.perf_counter() - start_time
-        print(f"Key: {key} not found. Search Time: {elapsed_time:.6f} seconds")
+                with open(file_meta["file"], "rb") as f:
+                    items = pickle.load(f)
+                    for k, v in items:
+                        if k == key:
+                            return v
         return None
 
-    def load_files(self):
-        print("Loading all files in database:")
-        for file_meta in self.metadata:
-            try:
-                with open(file_meta["file"], "rb") as f:
-                    data = pickle.load(f)
-                    print(f"Loaded {file_meta['file']}: {data}")
-            except Exception as e:
-                print(f"Error reading {file_meta['file']}: {e}")
-            
-
-
 def generate_random_key(length=10):
-    """Generate a random alphanumeric key."""
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
 
-def test_large_data(store, num_entries=1000):
-    """Insert a large number of key-value pairs and test retrieval."""
-    print(f"\nInserting {num_entries} random key-value pairs...")
-    start_time = time.time()
 
-    # Insert random keys and values and save some keys for testing
+def test_large_data(store, num_entries=100):
+    print(f"\nInserting {num_entries} random key-value pairs...")
     inserted_keys = []
     for _ in range(num_entries):
         key = generate_random_key()
         value = random.randint(1, 1000)
         store.insert(key, value)
-        if len(inserted_keys) < 10:  # Save the first 10 keys for testing retrieval
-            inserted_keys.append(key)
+        inserted_keys.append(key)
 
-    print(f"Data insertion completed in {time.time() - start_time:.2f} seconds.")
-
-    # Test retrieval of saved keys
     print("\nTesting retrieval of inserted keys:")
-    for key in inserted_keys:
-        result = store.get(key)
-        print(f"Key: {key} --> Value: {result}")
+    for key in inserted_keys[:5]:
+        value = store.get(key)
+        print(f"Key: {key} -> Value: {value}")
 
-    # Test retrieval of random non-existent keys
-    print("\nTesting retrieval of non-existent keys:")
+    print("\nTesting retrieval of random non-existent keys:")
     for _ in range(5):
         key = generate_random_key()
-        result = store.get(key)
-        print(f"Key: {key} --> Value: {result}")
+        value = store.get(key)
+        print(f"Key: {key} -> Value: {value}")
 
-    print("\nLoading all files...")
-    store.load_files()
 
 if __name__ == "__main__":
-    store = KeyValueStore(memory_threshold=100)  # Larger threshold for testing
-    test_large_data(store, num_entries=1000)
+    store = KeyValueStore(memory_threshold=10)
+    test_large_data(store, num_entries=50)
