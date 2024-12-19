@@ -144,13 +144,10 @@ class SparseIndexSST:
                     f.seek(start_position)
 
                     while f.tell() < index_position:
-                        try:
-                            current_key, value = pickle.load(f)
-                            if current_key == key:
-                                print(f"Found in {filename}: {key} -> {value}")
-                                return value
-                        except EOFError:
-                            break
+                        current_key, value = pickle.load(f)
+                        if current_key == key:
+                            print(f"Found in {filename}: {key} -> {value}")
+                            return value
             except (FileNotFoundError, EOFError):
                 continue
         return None
@@ -181,12 +178,45 @@ class KeyValueStore:
         self.red_black_tree = {}
 
     def get(self, key):
+        # Check in AVL Tree
         for k, v in self.avl_tree.in_order():
             if k == key:
                 return v
+        
+        # Check in Red-Black Tree
         if key in self.red_black_tree:
             return self.red_black_tree[key]
+
+        # Check in SST files
         return self.sst_manager.get(key)
+
+    def compact_sst_files(self):
+        print("\nStarting compaction...")
+        all_data = []
+        for i in range(self.sst_manager.file_counter):
+            filename = os.path.join(self.sst_manager.directory, f"F{i}.sst")
+            try:
+                with gzip.open(filename, "rb") as f:
+                    f.seek(-8, os.SEEK_END)
+                    index_position = int.from_bytes(f.read(8), "big")
+                    f.seek(0)
+
+                    while f.tell() < index_position:
+                        try:
+                            key, value = pickle.load(f)
+                            all_data.append((key, value))
+                        except EOFError:
+                            break
+
+                os.remove(filename)
+                print(f"Deleted old SST file: {filename}")
+            except FileNotFoundError:
+                continue
+
+        # Sort and dump the merged data into a new SST file
+        self.sst_manager.file_counter = 0
+        self.sst_manager.dump_to_file(sorted(all_data))
+        print("Compaction complete.")
 
 # Testing KeyValueStore
 def test_key_value_store():
@@ -197,6 +227,14 @@ def test_key_value_store():
         store.insert(f"key{i}", i)
 
     print("\nRetrieving existing keys:")
+    for i in range(20):
+        value = store.get(f"key{i}")
+        print(f"key{i} -> {value}")
+
+    print("\nTriggering SST file compaction...")
+    store.compact_sst_files()
+
+    print("\nRetrieving keys after compaction:")
     for i in range(20):
         value = store.get(f"key{i}")
         print(f"key{i} -> {value}")
