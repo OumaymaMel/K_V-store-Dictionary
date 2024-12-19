@@ -4,6 +4,9 @@ import hashlib
 import bisect
 import gzip
 import logging
+import shutil
+import unittest
+import time
 
 # Custom Bloom Filter Implementation
 class BloomFilter:
@@ -109,8 +112,8 @@ class SparseIndexSST:
         os.makedirs(directory, exist_ok=True)
         self.sparse_interval = sparse_interval
         self.file_counter = 0
-        self.bloom_filters = []
         logger.info("SparseIndexSST initialized.")
+        self.bloom_filters = []
 
     def dump_to_file(self, data):
         if not data:
@@ -163,61 +166,35 @@ class SparseIndexSST:
                     while f.tell() < index_position:
                         current_key, value = pickle.load(f)
                         if current_key == key:
+                            logger.info(f"Found {key} in {filename}: {value}")
                             return value
             except (FileNotFoundError, EOFError, pickle.UnpicklingError):
                 continue
         return None
 
-    def compact_sst_files(self):
-        print("\nStarting compaction...")
-        all_data = {}
-        for i in range(self.file_counter):
-            filename = os.path.join(self.directory, f"F{i}.sst")
-            try:
-                with gzip.open(filename, "rb") as f:
-                    f.seek(-8, os.SEEK_END)
-                    index_position = int.from_bytes(f.read(8), "big")
-                    f.seek(0)
-
-                    while f.tell() < index_position:
-                        key, value = pickle.load(f)
-                        all_data[key] = value
-                os.remove(filename)
-            except FileNotFoundError:
-                continue
-
-        self.file_counter = 0
-        self.bloom_filters = []
-        self.dump_to_file(sorted(all_data.items()))
-        print("Compaction complete.")
-
 class KeyValueStore:
-    def __init__(self, memory_threshold=5, database_path="data_store_db", sparse_interval=3, auto_compact=True):
+    def __init__(self, memory_threshold=5, database_path="data_store_db", sparse_interval=3):
         self.avl_tree = AVLTree()
         self.red_black_tree = {}
         self.sst_manager = SparseIndexSST(database_path, sparse_interval)
         self.memory_threshold = memory_threshold
         self.item_count = 0
-        self.auto_compact = auto_compact  # New flag for automatic compaction
 
     def insert(self, key, value):
         if self.item_count < self.memory_threshold:
+            print(f"Inserting in AVL Tree: {key} -> {value}")
             self.avl_tree.insert(key, value)
         else:
+            print(f"Inserting in Red-Black Tree: {key} -> {value}")
             self.red_black_tree[key] = value
             if len(self.red_black_tree) >= self.memory_threshold:
                 self.dump_to_file()
-                # Trigger compaction only if enabled
-                if self.auto_compact and self.sst_manager.file_counter >= 4:
-                    print("Triggering compaction...")
-                    self.compact_sst_files()
         self.item_count += 1
 
     def dump_to_file(self):
         print("Dumping data to SST file...")
         self.sst_manager.dump_to_file(sorted(self.red_black_tree.items()))
         self.red_black_tree = {}
-
 
     def get(self, key):
         for k, v in self.avl_tree.in_order():
@@ -228,11 +205,31 @@ class KeyValueStore:
         return self.sst_manager.get(key)
 
     def compact_sst_files(self):
-        self.sst_manager.compact_sst_files()
-import shutil
-import os
-import unittest
-import time
+        print("\nStarting compaction...")
+        all_data = {}
+        for i in range(self.sst_manager.file_counter):
+            filename = os.path.join(self.sst_manager.directory, f"F{i}.sst")
+            try:
+                with gzip.open(filename, "rb") as f:
+                    f.seek(-8, os.SEEK_END)
+                    index_position = int.from_bytes(f.read(8), "big")
+                    f.seek(0)
+
+                    while f.tell() < index_position:
+                        key, value = pickle.load(f)
+                        all_data[key] = value
+                os.remove(filename)
+                print(f"Deleted old SST file: {filename}")
+            except FileNotFoundError:
+                continue
+                
+        self.sst_manager.file_counter = 0
+        self.sst_manager.bloom_filters = []
+
+        # Dump the compacted data to a new SST file
+        self.sst_manager.dump_to_file(sorted(all_data.items()))
+
+        print("Compaction complete.")
 
 class TestKeyValueStore(unittest.TestCase):
     TEST_DIR = "data_store_db"
@@ -244,6 +241,7 @@ class TestKeyValueStore(unittest.TestCase):
         os.makedirs(cls.TEST_DIR, exist_ok=True)
         cls.store = KeyValueStore(memory_threshold=5, database_path=cls.TEST_DIR, sparse_interval=3)
 
+
     def timed_test(func):
         """Decorator to measure the time of each test"""
         def wrapper(self, *args, **kwargs):
@@ -252,9 +250,8 @@ class TestKeyValueStore(unittest.TestCase):
             end_time = time.time()
             print(f"\nTest '{func.__name__}' completed in {end_time - start_time:.4f} seconds")
         return wrapper
-
-
-    @timed_test
+  
+    @timed_test  
     def test_1_insertion_and_retrieval(self):
         print("\n--- Test 1: Insertion and Retrieval ---")
         # Insert 20 key-value pairs
@@ -266,7 +263,7 @@ class TestKeyValueStore(unittest.TestCase):
             value = self.store.get(f"key{i}")
             self.assertEqual(value, i, f"key{i} should return value {i}, but got {value}")
             print(f"key{i} -> {value}")
-    
+
     @timed_test
     def test_2_non_existing_keys(self):
         print("\n--- Test 2: Retrieval of Non-Existing Keys ---")
@@ -275,7 +272,7 @@ class TestKeyValueStore(unittest.TestCase):
             value = self.store.get(f"key{i}")
             self.assertIsNone(value, f"key{i} should return None, but got {value}")
             print(f"key{i} -> {value}")
-            
+
     @timed_test
     def test_3_sst_file_creation(self):
         print("\n--- Test 3: SST File Creation and Retrieval ---")
@@ -289,7 +286,7 @@ class TestKeyValueStore(unittest.TestCase):
             value = self.store.get(f"key{i}")
             self.assertEqual(value, i, f"key{i} should return value {i}, but got {value}")
             print(f"key{i} -> {value}")
-            
+
     @timed_test
     def test_4_compaction(self):
         print("\n--- Test 4: Compaction ---")
@@ -306,7 +303,7 @@ class TestKeyValueStore(unittest.TestCase):
             value = self.store.get(f"key{i}")
             self.assertEqual(value, i, f"key{i} should return value {i}, but got {value}")
             print(f"key{i} -> {value}")
-
+            
     @timed_test
     def test_5_reinsertion_after_compaction(self):
         print("\n--- Test 5: Reinsertion After Compaction ---")
@@ -328,48 +325,48 @@ class TestKeyValueStore(unittest.TestCase):
         value = self.store.get(nonexistent_key)
         self.assertIsNone(value, f"{nonexistent_key} should return None, but got {value}")
         print(f"{nonexistent_key} -> {value}")
-        
+
     @timed_test
-    def test_7_compaction_trigger_and_get(self):
-        print("\n--- Test 7: Compaction Trigger and Key Retrieval ---")
-
-        # Create a store with auto_compact disabled
-        store = KeyValueStore(memory_threshold=5, database_path=self.TEST_DIR, sparse_interval=3, auto_compact=False)
-
-        # Insert 40 keys to trigger SST file creation
-        for i in range(40):
-            store.insert(f"key{i}", i)
-
-        # Verify SST file count before manual compaction
-        sst_files = os.listdir(self.TEST_DIR)
-        print(f"SST files before compaction: {sst_files}")
-        self.assertGreaterEqual(len(sst_files), 4, "There should be at least 4 SST files before compaction.")
-
-        # Verify key retrieval before compaction
-        for i in range(40):
-            value = store.get(f"key{i}")
-            self.assertEqual(value, i, f"key{i} should return value {i} before compaction.")
-        print("Key retrieval before compaction passed.")
-
-        # Trigger compaction manually
-        store.compact_sst_files()
-
-        # Verify SST file count after compaction
-        sst_files = os.listdir(self.TEST_DIR)
-        print(f"SST files after compaction: {sst_files}")
-        self.assertEqual(len(sst_files), 1, "There should be exactly 1 SST file after compaction.")
-
-        # Verify key retrieval after compaction
-        for i in range(40):
-            value = store.get(f"key{i}")
-            self.assertEqual(value, i, f"key{i} should return value {i} after compaction.")
-        print("Key retrieval after compaction passed.")
-
-        # Test retrieval of non-existing keys
-        nonexistent_key = "key100"
-        value = store.get(nonexistent_key)
-        self.assertIsNone(value, f"{nonexistent_key} should return None.")
-        print(f"Non-existing key '{nonexistent_key}' correctly returns None.")
+    def test_7_large_data_insertion_and_retrieval(self):
+        print("\n--- Test 7: Large Data Insertion and Retrieval ---")
         
+        # Initialize a store for large data testing
+        large_store = KeyValueStore(memory_threshold=100, database_path=self.TEST_DIR, sparse_interval=10)
+        
+        NUM_KEYS = 10000  # Define the size of the large dataset
+        
+        # Insert 10,000 key-value pairs
+        print(f"Inserting {NUM_KEYS} keys into the store...")
+        for i in range(NUM_KEYS):
+            large_store.insert(f"key{i}", i)
+
+        # Verify random keys are retrievable
+        print("Verifying random key retrieval...")
+        for i in range(0, NUM_KEYS, 500):
+            value = large_store.get(f"key{i}")
+            self.assertEqual(value, i, f"key{i} should return value {i}, but got {value}")
+            print(f"key{i} -> {value}")
+
+        # Check the number of SST files before compaction
+        sst_files = os.listdir(self.TEST_DIR)
+        print(f"Total SST files before compaction: {len(sst_files)}")
+
+        # Trigger manual compaction
+        print("Triggering file compaction...")
+        large_store.compact_sst_files()
+
+        # Verify only one SST file remains after compaction
+        sst_files_after = os.listdir(self.TEST_DIR)
+        print(f"Total SST files after compaction: {len(sst_files_after)}")
+        self.assertEqual(len(sst_files_after), 1, "There should be exactly 1 SST file after compaction.")
+
+        # Verify all keys after compaction
+        print("Verifying all keys after compaction...")
+        for i in range(NUM_KEYS):
+            value = large_store.get(f"key{i}")
+            self.assertEqual(value, i, f"key{i} should return value {i}, but got {value}")
+        
+        print(f"All {NUM_KEYS} keys successfully verified after compaction.")
+
 if __name__ == "__main__":
     unittest.main(argv=[''], exit=False)
