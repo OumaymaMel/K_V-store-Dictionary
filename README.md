@@ -1,4 +1,4 @@
-# K_V-store-Dictionary# Key-Value Store Project
+# Key-Value Store Project
 
 ## Overview
 This project implements a scalable and efficient Key-Value Store system in Python. The system supports in-memory storage and persistent disk-based storage using optimized data structures and algorithms, such as AVL Trees, Bloom Filters, and Sorted String Table (SST) files. It is designed to handle large-scale datasets while ensuring fast insertions, lookups, and compact storage.
@@ -88,4 +88,5 @@ This project is a collaborative effort as part of a two-student team.
 2. Add a Time-to-Live (TTL) mechanism for automatic key expiration.
 3. Introduce multi-threading for improved compaction and concurrency support.
 4. Enable transaction support for atomic operations.
+
 
