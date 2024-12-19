@@ -1,9 +1,8 @@
-import pickle
 import os
+import pickle
 import hashlib
-import time
-import random
-import string
+import bisect
+import gzip
 
 # Custom Bloom Filter Implementation
 class BloomFilter:
@@ -67,14 +66,13 @@ class AVLTree:
             node.left = self._insert(node.left, key, value)
         elif key > node.key:
             node.right = self._insert(node.right, key, value)
-        else:  # Duplicate keys are updated
+        else:
             node.value = value
             return node
 
         node.height = 1 + max(self._height(node.left), self._height(node.right))
         balance = self._balance_factor(node)
 
-        # Perform rotations if unbalanced
         if balance > 1 and key < node.left.key:
             return self._rotate_right(node)
         if balance < -1 and key > node.right.key:
@@ -100,34 +98,71 @@ class AVLTree:
     def in_order(self):
         return list(self._in_order(self.root))
 
-# Red-Black Tree Placeholder
-class RedBlackTree:
-    def __init__(self):
-        self.data = {}
+# Sparse Index SST Manager
+class SparseIndexSST:
+    def __init__(self, directory, sparse_interval=3):
+        self.directory = directory
+        os.makedirs(directory, exist_ok=True)
+        self.sparse_interval = sparse_interval
+        self.file_counter = 0
 
-    def insert(self, key, value):
-        self.data[key] = value
+    def dump_to_file(self, data):
+        if not data:
+            return
+        filename = os.path.join(self.directory, f"F{self.file_counter}.sst")
+        sparse_index = []
+        position = 0
 
-    def get_sorted_items(self):
-        return sorted(self.data.items())
+        with gzip.open(filename, "wb") as f:
+            for i, (key, value) in enumerate(data):
+                serialized = pickle.dumps((key, value))
+                f.write(serialized)
+                if i % self.sparse_interval == 0:
+                    sparse_index.append((key, position))
+                position += len(serialized)
 
+            index_position = f.tell()
+            pickle.dump(sparse_index, f)
+            f.write(index_position.to_bytes(8, "big"))
+
+        print(f"Dumped {len(data)} items to {filename} with sparse index.")
+        self.file_counter += 1
+
+    def get(self, key):
+        for i in range(self.file_counter):
+            filename = os.path.join(self.directory, f"F{i}.sst")
+            try:
+                with gzip.open(filename, "rb") as f:
+                    f.seek(-8, os.SEEK_END)
+                    index_position = int.from_bytes(f.read(8), "big")
+                    f.seek(index_position)
+                    sparse_index = pickle.load(f)
+                    keys = [k for k, _ in sparse_index]
+                    pos = bisect.bisect_left(keys, key)
+
+                    start_position = sparse_index[max(0, pos - 1)][1]
+                    f.seek(start_position)
+
+                    while f.tell() < index_position:
+                        try:
+                            current_key, value = pickle.load(f)
+                            if current_key == key:
+                                print(f"Found in {filename}: {key} -> {value}")
+                                return value
+                        except EOFError:
+                            break
+            except (FileNotFoundError, EOFError):
+                continue
+        return None
+
+# KeyValueStore Implementation
 class KeyValueStore:
-    def __init__(self, memory_threshold=10, database_path="data_store_db"):
+    def __init__(self, memory_threshold=5, database_path="data_store_db", sparse_interval=3):
         self.avl_tree = AVLTree()
-        self.red_black_tree = RedBlackTree()
+        self.red_black_tree = {}
+        self.sst_manager = SparseIndexSST(database_path, sparse_interval)
         self.memory_threshold = memory_threshold
-        self.database_path = database_path
         self.item_count = 0
-        self.file_counter = 1
-        self.metadata_file = os.path.join(database_path, "index.pkl")
-        self.metadata = []
-
-        # Ensure the database folder exists
-        if not os.path.exists(self.database_path):
-            os.makedirs(self.database_path)
-        if os.path.exists(self.metadata_file):
-            with open(self.metadata_file, "rb") as f:
-                self.metadata = pickle.load(f)
 
     def insert(self, key, value):
         if self.item_count < self.memory_threshold:
@@ -135,78 +170,36 @@ class KeyValueStore:
             self.avl_tree.insert(key, value)
         else:
             print(f"Inserting in Red-Black Tree: {key} -> {value}")
-            self.red_black_tree.insert(key, value)
-            if len(self.red_black_tree.data) >= self.memory_threshold:
+            self.red_black_tree[key] = value
+            if len(self.red_black_tree) >= self.memory_threshold:
                 self.dump_to_file()
-                self.red_black_tree = RedBlackTree()
         self.item_count += 1
 
     def dump_to_file(self):
-        print("Dumping data to file...")
-        items = self.red_black_tree.get_sorted_items()
-        file_name = os.path.join(self.database_path, f"F{self.file_counter}.pkl")
-        bloom = BloomFilter(size=1000, hash_count=3)
-
-        with open(file_name, "wb") as f:
-            pickle.dump(items, f)
-            print(f"Dumped {len(items)} items to file: {file_name}")
-
-        for key, _ in items:
-            bloom.add(key)
-        self.metadata.append({
-            "file": file_name,
-            "bloom_filter": bloom
-        })
-        with open(self.metadata_file, "wb") as f:
-            pickle.dump(self.metadata, f)
-        self.file_counter += 1
+        print("Dumping data to SST file...")
+        self.sst_manager.dump_to_file(sorted(self.red_black_tree.items()))
+        self.red_black_tree = {}
 
     def get(self, key):
         for k, v in self.avl_tree.in_order():
             if k == key:
-                print(f"Found in AVL Tree: {key} -> {v}")
                 return v
+        if key in self.red_black_tree:
+            return self.red_black_tree[key]
+        return self.sst_manager.get(key)
 
-        if key in self.red_black_tree.data:
-            print(f"Found in Red-Black Tree: {key} -> {self.red_black_tree.data[key]}")
-            return self.red_black_tree.data[key]
+# Testing KeyValueStore
+def test_key_value_store():
+    print("--- Testing KeyValueStore ---")
+    store = KeyValueStore(memory_threshold=5)
 
-        for file_meta in self.metadata:
-            if key in file_meta["bloom_filter"]:
-                with open(file_meta["file"], "rb") as f:
-                    items = pickle.load(f)
-                    for k, v in items:
-                        if k == key:
-                            print(f"Found in File {file_meta['file']}: {key} -> {v}")
-                            return v
-        print(f"Key: {key} not found.")
-        return None
-    
-    
-def generate_random_key(length=10):
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+    for i in range(20):
+        store.insert(f"key{i}", i)
 
-def test_large_data(store, num_entries=100):
-    print(f"\nInserting {num_entries} random key-value pairs...")
-    inserted_keys = []
-    for _ in range(num_entries):
-        key = generate_random_key()
-        value = random.randint(1, 1000)
-        store.insert(key, value)
-        if len(inserted_keys) < 5:
-            inserted_keys.append(key)
-
-    print("\nTesting retrieval of inserted keys:")
-    for key in inserted_keys:
-        result = store.get(key)
-        print(f"Key: {key} -> Value: {result}")
-
-    print("\nTesting retrieval of random non-existent keys:")
-    for _ in range(5):
-        key = generate_random_key()
-        result = store.get(key)
-        print(f"Key: {key} -> Value: {result}")
+    print("\nRetrieving existing keys:")
+    for i in range(20):
+        value = store.get(f"key{i}")
+        print(f"key{i} -> {value}")
 
 if __name__ == "__main__":
-    store = KeyValueStore(memory_threshold=10)
-    test_large_data(store, num_entries=100)
+    test_key_value_store()
