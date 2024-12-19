@@ -22,7 +22,6 @@ class BloomFilter:
     def __contains__(self, key):
         return all(self.bit_array[hash_value] for hash_value in self._hashes(key))
 
-
 # AVL Tree Node
 class AVLNode:
     def __init__(self, key, value):
@@ -31,7 +30,6 @@ class AVLNode:
         self.height = 1
         self.left = None
         self.right = None
-
 
 # AVL Tree Implementation
 class AVLTree:
@@ -69,7 +67,7 @@ class AVLTree:
             node.left = self._insert(node.left, key, value)
         elif key > node.key:
             node.right = self._insert(node.right, key, value)
-        else:
+        else:  # Duplicate keys are updated
             node.value = value
             return node
 
@@ -102,8 +100,7 @@ class AVLTree:
     def in_order(self):
         return list(self._in_order(self.root))
 
-
-# Simple Red-Black Tree (Placeholder)
+# Red-Black Tree Placeholder
 class RedBlackTree:
     def __init__(self):
         self.data = {}
@@ -114,10 +111,8 @@ class RedBlackTree:
     def get_sorted_items(self):
         return sorted(self.data.items())
 
-
-# Key-Value Store Implementation
 class KeyValueStore:
-    def __init__(self, memory_threshold=5, database_path="data_store_db"):
+    def __init__(self, memory_threshold=10, database_path="data_store_db"):
         self.avl_tree = AVLTree()
         self.red_black_tree = RedBlackTree()
         self.memory_threshold = memory_threshold
@@ -136,8 +131,10 @@ class KeyValueStore:
 
     def insert(self, key, value):
         if self.item_count < self.memory_threshold:
+            print(f"Inserting in AVL Tree: {key} -> {value}")
             self.avl_tree.insert(key, value)
         else:
+            print(f"Inserting in Red-Black Tree: {key} -> {value}")
             self.red_black_tree.insert(key, value)
             if len(self.red_black_tree.data) >= self.memory_threshold:
                 self.dump_to_file()
@@ -145,22 +142,21 @@ class KeyValueStore:
         self.item_count += 1
 
     def dump_to_file(self):
+        print("Dumping data to file...")
         items = self.red_black_tree.get_sorted_items()
         file_name = os.path.join(self.database_path, f"F{self.file_counter}.pkl")
         bloom = BloomFilter(size=1000, hash_count=3)
 
         with open(file_name, "wb") as f:
             pickle.dump(items, f)
-            for key, _ in items:
-                bloom.add(key)
+            print(f"Dumped {len(items)} items to file: {file_name}")
 
+        for key, _ in items:
+            bloom.add(key)
         self.metadata.append({
             "file": file_name,
-            "start_key": items[0][0],
-            "end_key": items[-1][0],
             "bloom_filter": bloom
         })
-
         with open(self.metadata_file, "wb") as f:
             pickle.dump(self.metadata, f)
         self.file_counter += 1
@@ -168,24 +164,27 @@ class KeyValueStore:
     def get(self, key):
         for k, v in self.avl_tree.in_order():
             if k == key:
+                print(f"Found in AVL Tree: {key} -> {v}")
                 return v
 
         if key in self.red_black_tree.data:
+            print(f"Found in Red-Black Tree: {key} -> {self.red_black_tree.data[key]}")
             return self.red_black_tree.data[key]
 
         for file_meta in self.metadata:
-            bloom = file_meta["bloom_filter"]
-            if key in bloom:
+            if key in file_meta["bloom_filter"]:
                 with open(file_meta["file"], "rb") as f:
                     items = pickle.load(f)
                     for k, v in items:
                         if k == key:
+                            print(f"Found in File {file_meta['file']}: {key} -> {v}")
                             return v
+        print(f"Key: {key} not found.")
         return None
-
+    
+    
 def generate_random_key(length=10):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
-
 
 def test_large_data(store, num_entries=100):
     print(f"\nInserting {num_entries} random key-value pairs...")
@@ -194,20 +193,20 @@ def test_large_data(store, num_entries=100):
         key = generate_random_key()
         value = random.randint(1, 1000)
         store.insert(key, value)
-        inserted_keys.append(key)
+        if len(inserted_keys) < 5:
+            inserted_keys.append(key)
 
     print("\nTesting retrieval of inserted keys:")
-    for key in inserted_keys[:5]:
-        value = store.get(key)
-        print(f"Key: {key} -> Value: {value}")
+    for key in inserted_keys:
+        result = store.get(key)
+        print(f"Key: {key} -> Value: {result}")
 
     print("\nTesting retrieval of random non-existent keys:")
     for _ in range(5):
         key = generate_random_key()
-        value = store.get(key)
-        print(f"Key: {key} -> Value: {value}")
-
+        result = store.get(key)
+        print(f"Key: {key} -> Value: {result}")
 
 if __name__ == "__main__":
     store = KeyValueStore(memory_threshold=10)
-    test_large_data(store, num_entries=50)
+    test_large_data(store, num_entries=100)
