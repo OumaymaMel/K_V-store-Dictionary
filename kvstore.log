@@ -1,0 +1,8 @@
+2024-12-19 14:31:47,842 - SparseIndexSST initialized.
+2024-12-19 14:31:47,873 - Dumped 3 items to data_store_db/F0.sst with sparse index.
+2024-12-19 14:31:47,908 - Found key2 in data_store_db/F0.sst: 2
+2024-12-19 14:31:47,916 - Key key_not_exist not found in any SST file.
+2024-12-19 14:31:47,918 - SparseIndexSST initialized.
+2024-12-19 14:31:47,918 - Key key_not_exist not found in any SST file.
+2024-12-19 14:31:47,920 - SparseIndexSST initialized.
+2024-12-19 14:31:47,925 - Key key_not_exist not found in any SST file.

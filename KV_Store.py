@@ -3,6 +3,10 @@ import pickle
 import hashlib
 import bisect
 import gzip
+import logging
+import unittest
+import shutil
+import os
 
 # Custom Bloom Filter Implementation
 class BloomFilter:
@@ -98,59 +102,82 @@ class AVLTree:
     def in_order(self):
         return list(self._in_order(self.root))
 
-# Sparse Index SST Manager
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, filename="kvstore.log", format="%(asctime)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 class SparseIndexSST:
     def __init__(self, directory, sparse_interval=3):
         self.directory = directory
         os.makedirs(directory, exist_ok=True)
         self.sparse_interval = sparse_interval
         self.file_counter = 0
+        logger.info("SparseIndexSST initialized.")
 
     def dump_to_file(self, data):
+        """
+        Dumps sorted data to an SST file with a sparse index.
+        """
         if not data:
+            logger.warning("Attempted to dump empty data to SST file.")
             return
+        
         filename = os.path.join(self.directory, f"F{self.file_counter}.sst")
         sparse_index = []
         position = 0
 
-        with gzip.open(filename, "wb") as f:
-            for i, (key, value) in enumerate(data):
-                serialized = pickle.dumps((key, value))
-                f.write(serialized)
-                if i % self.sparse_interval == 0:
-                    sparse_index.append((key, position))
-                position += len(serialized)
+        try:
+            with gzip.open(filename, "wb") as f:
+                for i, (key, value) in enumerate(data):
+                    serialized = pickle.dumps((key, value))
+                    f.write(serialized)
 
-            index_position = f.tell()
-            pickle.dump(sparse_index, f)
-            f.write(index_position.to_bytes(8, "big"))
+                    if i % self.sparse_interval == 0:
+                        sparse_index.append((key, position))
+                    position += len(serialized)
 
-        print(f"Dumped {len(data)} items to {filename} with sparse index.")
+                index_position = f.tell()
+                pickle.dump(sparse_index, f)
+                f.write(index_position.to_bytes(8, "big"))
+            logger.info(f"Dumped {len(data)} items to {filename} with sparse index.")
+        except Exception as e:
+            logger.error(f"Error while dumping data to {filename}: {e}")
         self.file_counter += 1
 
     def get(self, key):
+        """
+        Retrieve a key's value using the sparse index for optimized search.
+        """
         for i in range(self.file_counter):
             filename = os.path.join(self.directory, f"F{i}.sst")
             try:
                 with gzip.open(filename, "rb") as f:
+                    # Read sparse index position
                     f.seek(-8, os.SEEK_END)
                     index_position = int.from_bytes(f.read(8), "big")
+
+                    # Load sparse index
                     f.seek(index_position)
                     sparse_index = pickle.load(f)
                     keys = [k for k, _ in sparse_index]
-                    pos = bisect.bisect_left(keys, key)
 
+                    # Perform binary search in the sparse index
+                    pos = bisect.bisect_left(keys, key)
                     start_position = sparse_index[max(0, pos - 1)][1]
                     f.seek(start_position)
 
+                    # Linear search from start_position
                     while f.tell() < index_position:
                         current_key, value = pickle.load(f)
                         if current_key == key:
-                            print(f"Found in {filename}: {key} -> {value}")
+                            logger.info(f"Found {key} in {filename}: {value}")
                             return value
-            except (FileNotFoundError, EOFError):
-                continue
+            except (FileNotFoundError, EOFError, pickle.UnpicklingError) as e:
+                logger.warning(f"Error reading {filename}: {e}")
+        logger.info(f"Key {key} not found in any SST file.")
         return None
+
 
 # KeyValueStore Implementation
 class KeyValueStore:
@@ -218,26 +245,46 @@ class KeyValueStore:
         self.sst_manager.dump_to_file(sorted(all_data))
         print("Compaction complete.")
 
-# Testing KeyValueStore
-def test_key_value_store():
-    print("--- Testing KeyValueStore ---")
-    store = KeyValueStore(memory_threshold=5)
 
-    for i in range(20):
-        store.insert(f"key{i}", i)
+class TestSparseIndexSST(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Clean up existing database folder
+        cls.db_dir = "data_store_db"
+        if os.path.exists(cls.db_dir):
+            shutil.rmtree(cls.db_dir)
+        os.makedirs(cls.db_dir, exist_ok=True)
 
-    print("\nRetrieving existing keys:")
-    for i in range(20):
-        value = store.get(f"key{i}")
-        print(f"key{i} -> {value}")
+    @classmethod
+    def tearDownClass(cls):
+        # Remove test database folder after tests
+        shutil.rmtree(cls.db_dir)
 
-    print("\nTriggering SST file compaction...")
-    store.compact_sst_files()
+    def test_get_from_empty_store(self):
+        sst = SparseIndexSST(self.db_dir)
+        result = sst.get("key_not_exist")
+        self.assertIsNone(result, "Retrieving from an empty store should return None.")
 
-    print("\nRetrieving keys after compaction:")
-    for i in range(20):
-        value = store.get(f"key{i}")
-        print(f"key{i} -> {value}")
+    def test_get_with_corrupted_file(self):
+        sst = SparseIndexSST(self.db_dir)
+        # Manually create a corrupted SST file
+        filename = os.path.join(self.db_dir, "F0.sst")
+        with open(filename, "wb") as f:
+            f.write(b"corrupted_data")
+
+        result = sst.get("key_not_exist")
+        self.assertIsNone(result, "Retrieving from a corrupted SST file should return None.")
+
+    def test_dump_and_retrieve(self):
+        sst = SparseIndexSST(self.db_dir)
+        data = [("key1", 1), ("key2", 2), ("key3", 3)]
+        sst.dump_to_file(data)
+
+        result = sst.get("key2")
+        self.assertEqual(result, 2, "Retrieving an existing key should return its value.")
+        result = sst.get("key_not_exist")
+        self.assertIsNone(result, "Retrieving a non-existing key should return None.")
 
 if __name__ == "__main__":
-    test_key_value_store()
+    # Run unittest in interactive environments
+    unittest.main(argv=[''], exit=False)
