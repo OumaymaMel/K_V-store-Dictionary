@@ -1,8 +1,15 @@
-2024-12-19 14:31:47,842 - SparseIndexSST initialized.
-2024-12-19 14:31:47,873 - Dumped 3 items to data_store_db/F0.sst with sparse index.
-2024-12-19 14:31:47,908 - Found key2 in data_store_db/F0.sst: 2
-2024-12-19 14:31:47,916 - Key key_not_exist not found in any SST file.
-2024-12-19 14:31:47,918 - SparseIndexSST initialized.
-2024-12-19 14:31:47,918 - Key key_not_exist not found in any SST file.
-2024-12-19 14:31:47,920 - SparseIndexSST initialized.
-2024-12-19 14:31:47,925 - Key key_not_exist not found in any SST file.
+2024-12-19 20:54:08,036 - SparseIndexSST initialized.
+2024-12-19 20:54:08,052 - Dumped 5 items to data_store_db/F0.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,057 - Dumped 5 items to data_store_db/F1.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,063 - Dumped 5 items to data_store_db/F2.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,203 - Dumped 15 items to data_store_db/F0.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,286 - Dumped 5 items to data_store_db/F1.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,319 - SparseIndexSST initialized.
+2024-12-19 20:54:08,324 - Dumped 5 items to data_store_db/F0.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,327 - Dumped 5 items to data_store_db/F1.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,330 - Dumped 5 items to data_store_db/F2.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,335 - Dumped 5 items to data_store_db/F3.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,340 - Dumped 5 items to data_store_db/F4.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,344 - Dumped 5 items to data_store_db/F5.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,351 - Dumped 5 items to data_store_db/F6.sst with sparse index and Bloom Filter.
+2024-12-19 20:54:08,594 - Dumped 35 items to data_store_db/F0.sst with sparse index and Bloom Filter.
