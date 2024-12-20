@@ -53,7 +53,7 @@ store.compact_sst_files()
 The project includes a comprehensive test suite to validate all functionalities:
 1. Run the tests:
    ```bash
-   python -m unittest discover tests
+   python3 -m unittest KV_Store.py
    ```
 2. Example test cases include:
    - Insertion and retrieval of keys
@@ -78,7 +78,7 @@ K_V-store-Dictionary/
 ```
 
 ## Contributors
-- **Oumaima Meliani**
+- **Oumayma Meliani**
 - **Aicha El Felchaoui**
 
 This project is a collaborative effort as part of a two-student team.
